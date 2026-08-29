@@ -2,6 +2,7 @@
   "expo": {
     "name": "Miluna",
     "slug": "miluna",
+    "owner": "grissele6",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -38,9 +39,6 @@
       ]
     ],
     "extra": {
-      "eas": {
-        "projectId": "50bef00e-d7f0-4bb1-9319-b522dafc963a"
-      },
       "adMobEnabled": false
     }
   }

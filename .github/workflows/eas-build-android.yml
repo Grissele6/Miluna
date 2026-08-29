@@ -26,6 +26,22 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli@latest
 
+      - name: Link or create EAS project under the token's account
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          # If app.json already carries an extra.eas.projectId, `eas init`
+          # is unnecessary; if it does not, `eas init --non-interactive --force`
+          # either links to an existing project with the same slug/owner
+          # under the authenticated account, or creates a fresh one, and
+          # writes the projectId back into app.json for this run.
+          if node -e "const c=require('./app.json'); process.exit(c.expo?.extra?.eas?.projectId ? 0 : 1)"; then
+            echo "projectId already present in app.json — skipping eas init."
+          else
+            eas init --non-interactive --force
+          fi
+
       - name: Run EAS build (Android · preview · APK)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
