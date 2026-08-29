@@ -3,13 +3,8 @@ import { toISODate } from './dateHelpers';
 
 const DEFAULT_CYCLE = 28;
 const DEFAULT_PERIOD = 5;
-const LUTEAL_PHASE = 14; // ovulation ≈ next start - 14
+const LUTEAL_PHASE = 14;
 
-/**
- * Given the user's history of period starts (sorted asc, ISO strings),
- * compute an adaptive average cycle length. Falls back to defaults.
- * Uses the last 6 gaps and trims outliers > 45 or < 18 days.
- */
 export function computeAverages(periods) {
   const starts = periods.map((p) => p.startDate).sort();
   if (starts.length < 2) {
@@ -35,15 +30,6 @@ export function computeAverages(periods) {
   return { cycleLength, periodLength, samples: recent.length };
 }
 
-/**
- * Return prediction info for the current cycle:
- *   - lastPeriodStart (ISO or null)
- *   - nextPeriodStart (ISO or null)
- *   - ovulationDay (ISO or null)
- *   - fertileWindow: { start, end } (ISO or null)
- *   - cycleDay: current day within cycle (1-based) or null
- *   - averages: cycleLength, periodLength
- */
 export function buildPrediction(periods, today = new Date()) {
   const { cycleLength, periodLength, samples } = computeAverages(periods);
   if (!periods.length) {
@@ -77,10 +63,6 @@ export function buildPrediction(periods, today = new Date()) {
   };
 }
 
-/**
- * For a given date, classify it as: 'period', 'predicted-period', 'fertile',
- * 'ovulation', or null.
- */
 export function classifyDate(dateISO, periods, prediction) {
   for (const p of periods) {
     if (p.endDate) {
@@ -101,13 +83,47 @@ export function classifyDate(dateISO, periods, prediction) {
   return null;
 }
 
+/**
+ * Pregnancy probability estimate for a given date.
+ * Returns 'baja' | 'media' | 'alta' | null.
+ * baja = safe range or period days; media = fertile edges; alta = ovulation ±1.
+ */
+export function pregnancyProbability(dateISO, periods, prediction) {
+  if (!prediction || !prediction.ovulationDay) return null;
+  const kind = classifyDate(dateISO, periods, prediction);
+  if (kind === 'period' || kind === 'predicted-period') return 'baja';
+  const ovul = parseISO(prediction.ovulationDay);
+  const d = parseISO(dateISO);
+  const diff = Math.abs(differenceInCalendarDays(d, ovul));
+  if (diff <= 1) return 'alta';
+  if (kind === 'fertile') return 'media';
+  return 'baja';
+}
+
+/**
+ * If a given date fell inside the fertile window and intercourse was
+ * unprotected, return recommendation payload.
+ */
+export function unprotectedRiskInfo(dateISO, prediction) {
+  if (!prediction || !prediction.fertileWindow) return null;
+  const { fertileWindow, nextPeriodStart } = prediction;
+  const inWindow = dateISO >= fertileWindow.start && dateISO <= fertileWindow.end;
+  const probability = inWindow ? 'media/alta' : 'baja';
+  // Suggested test date: expected next period + 1 day (first day of delay).
+  const suggestTestDate = nextPeriodStart
+    ? toISODate(addDays(parseISO(nextPeriodStart), 1))
+    : null;
+  return { inWindow, probability, suggestTestDate };
+}
+
 /** Adaptive stats about the user's own cycle. */
 export function computeStats(periods, dailyLogs) {
   const { cycleLength, periodLength, samples } = computeAverages(periods);
   const symptomCount = {};
   const moodCount = {};
   for (const log of dailyLogs) {
-    if (log.mood) moodCount[log.mood] = (moodCount[log.mood] || 0) + 1;
+    const moods = log.moods && log.moods.length ? log.moods : log.mood ? [log.mood] : [];
+    for (const m of moods) moodCount[m] = (moodCount[m] || 0) + 1;
     if (Array.isArray(log.symptoms)) {
       for (const s of log.symptoms) symptomCount[s] = (symptomCount[s] || 0) + 1;
     }

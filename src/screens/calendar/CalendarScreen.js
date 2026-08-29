@@ -3,9 +3,9 @@ import { View, Text, ScrollView, StyleSheet, Pressable, Alert } from 'react-nati
 import StarryBackground from '../../components/StarryBackground';
 import OrbitCycle from '../../components/OrbitCycle';
 import { Card, PrimaryButton, GhostButton, SectionTitle } from '../../components/UI';
-import { colors, spacing, typography, radius } from '../../theme';
-import { addPeriod, listPeriods, removePeriod } from '../../db/repositories';
-import { buildPrediction, classifyDate } from '../../utils/cyclePredictions';
+import { colors, spacing, typography } from '../../theme';
+import { addPeriod, listPeriods, removePeriod, listIntimacy } from '../../db/repositories';
+import { buildPrediction, classifyDate, pregnancyProbability } from '../../utils/cyclePredictions';
 import {
   toISODate,
   parseDate,
@@ -17,44 +17,63 @@ import {
   fmtMonthYear,
   fmtLong,
 } from '../../utils/dateHelpers';
-import { CONTRACEPTIVE_DISCLAIMER, copyFor } from '../../utils/stageContent';
+import {
+  CONTRACEPTIVE_DISCLAIMER,
+  PREGNANCY_BLEEDING_MESSAGE,
+  PROBABILITY_DISCLAIMER,
+  copyFor,
+} from '../../utils/stageContent';
 import { useUser } from '../../contexts/UserContext';
 
 const WEEKDAYS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 
 export default function CalendarScreen() {
   const { stage } = useUser();
+  const copy = copyFor(stage);
+  const isPregnant = stage === 'embarazo';
+
   const [monthCursor, setMonthCursor] = useState(new Date());
   const [periods, setPeriods] = useState([]);
+  const [intimacy, setIntimacy] = useState([]);
   const [selected, setSelected] = useState(toISODate(new Date()));
 
-  const reload = useCallback(async () => setPeriods(await listPeriods()), []);
+  const reload = useCallback(async () => {
+    const [p, i] = await Promise.all([listPeriods(), listIntimacy(1000)]);
+    setPeriods(p);
+    setIntimacy(i);
+  }, []);
   useEffect(() => {
     reload();
   }, [reload]);
 
+  const intimacyByDate = useMemo(() => {
+    const map = {};
+    for (const it of intimacy) {
+      map[it.date] = map[it.date] || [];
+      map[it.date].push(it);
+    }
+    return map;
+  }, [intimacy]);
+
   const prediction = useMemo(() => buildPrediction(periods), [periods]);
-  const copy = copyFor(stage);
 
   const days = useMemo(() => {
     const start = startOfMonth(monthCursor);
     const end = endOfMonth(monthCursor);
     const all = eachDayOfInterval({ start, end });
-    // Pad to Monday-start
     const firstDow = (getDay(start) + 6) % 7;
-    const padding = Array(firstDow).fill(null);
-    return [...padding, ...all];
+    return [...Array(firstDow).fill(null), ...all];
   }, [monthCursor]);
 
-  const monthTotal = days.length;
-  const trailing = (7 - (monthTotal % 7)) % 7;
+  const trailing = (7 - (days.length % 7)) % 7;
   const grid = [...days, ...Array(trailing).fill(null)];
 
   const toggleSelectedAsPeriodStart = async () => {
     const iso = selected;
     const already = periods.find((p) => p.startDate === iso);
+    const label = isPregnant ? 'sangrado' : 'inicio de regla';
     if (already) {
-      Alert.alert('Quitar día de regla', `Ya está marcado como inicio de regla. ¿Quitarlo?`, [
+      Alert.alert(`Quitar ${label}`, `Este día está marcado. ¿Quitarlo?`, [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Quitar',
@@ -68,19 +87,22 @@ export default function CalendarScreen() {
       return;
     }
     await addPeriod(iso, iso);
+    if (isPregnant) {
+      Alert.alert('Sobre el sangrado', PREGNANCY_BLEEDING_MESSAGE);
+    }
     reload();
   };
 
   const extendPeriod = async () => {
     if (!periods.length) return;
-    // find the most recent period whose start <= selected
     const sorted = [...periods].sort((a, b) => a.startDate.localeCompare(b.startDate));
     let target = null;
-    for (const p of sorted) {
-      if (p.startDate <= selected) target = p;
-    }
+    for (const p of sorted) if (p.startDate <= selected) target = p;
     if (!target) {
-      Alert.alert('Marca primero el inicio', 'Toca el día en que empezó tu regla y luego "Marcar inicio de regla".');
+      Alert.alert(
+        'Marca primero el inicio',
+        `Toca el día en que empezó tu ${copy.periodWord} y luego "Marcar inicio".`
+      );
       return;
     }
     const newEnd = selected >= target.startDate ? selected : target.startDate;
@@ -88,31 +110,34 @@ export default function CalendarScreen() {
     reload();
   };
 
-  const cycleDayForToday = prediction?.cycleDay ?? null;
+  const selectedProb = pregnancyProbability(selected, periods, prediction);
+  const selectedIntim = intimacyByDate[selected] || [];
 
   return (
     <StarryBackground seed={4}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.brand}>Mi calendario</Text>
 
-        <Card style={{ alignItems: 'center' }}>
-          <OrbitCycle
-            cycleLength={prediction.averages.cycleLength}
-            cycleDay={cycleDayForToday}
-            periodLength={prediction.averages.periodLength}
-            ovulationDay={prediction.averages.cycleLength - 14}
-            fertileRange={[
-              Math.max(1, prediction.averages.cycleLength - 14 - 5),
-              Math.min(prediction.averages.cycleLength, prediction.averages.cycleLength - 14 + 1),
-            ]}
-          />
-          <Text style={styles.predictionLine}>
-            {prediction.nextPeriodStart
-              ? `Próxima regla estimada: ${fmtLong(parseDate(prediction.nextPeriodStart))}`
-              : 'Marca tu primera regla para empezar a predecir tu ciclo.'}
-          </Text>
-          <Text style={styles.caveat}>{copy.predictionCaveat}</Text>
-        </Card>
+        {!isPregnant && (
+          <Card style={{ alignItems: 'center' }}>
+            <OrbitCycle
+              cycleLength={prediction.averages.cycleLength}
+              cycleDay={prediction.cycleDay}
+              periodLength={prediction.averages.periodLength}
+              ovulationDay={Math.max(1, prediction.averages.cycleLength - 14)}
+              fertileRange={[
+                Math.max(1, prediction.averages.cycleLength - 14 - 5),
+                Math.min(prediction.averages.cycleLength, prediction.averages.cycleLength - 14 + 1),
+              ]}
+            />
+            <Text style={styles.predictionLine}>
+              {prediction.nextPeriodStart
+                ? `Próxima ${copy.periodWord} estimada: ${fmtLong(parseDate(prediction.nextPeriodStart))}`
+                : `Marca tu primer${copy.periodWord === 'regla' ? 'a' : ''} ${copy.periodWord} para empezar a predecir tu ciclo.`}
+            </Text>
+            <Text style={styles.caveat}>{copy.predictionCaveat}</Text>
+          </Card>
+        )}
 
         <Card style={{ marginTop: spacing.md }}>
           <View style={styles.monthHeader}>
@@ -138,43 +163,58 @@ export default function CalendarScreen() {
               const kind = classifyDate(iso, periods, prediction);
               const isSelected = iso === selected;
               const isToday = iso === toISODate(new Date());
+              const hasIntim = !!intimacyByDate[iso]?.length;
               return (
                 <Pressable key={i} style={styles.cell} onPress={() => setSelected(iso)}>
                   <View style={[styles.dayDot, cellStyle(kind), isSelected && styles.daySelected]}>
                     <Text style={[styles.dayText, kind && styles.dayTextOn]}>{d.getDate()}</Text>
                   </View>
-                  {isToday && <View style={styles.todayDot} />}
+                  <View style={styles.dotRow}>
+                    {isToday && <View style={styles.todayDot} />}
+                    {hasIntim && <View style={styles.intimDot} />}
+                  </View>
                 </Pressable>
               );
             })}
           </View>
 
           <View style={styles.legendRow}>
-            <Legend color={colors.purple} label="Regla" />
-            <Legend color={colors.purpleDeep} label="Regla estimada" hollow />
-            <Legend color={colors.blueSoft} label="Fértiles" />
-            <Legend color={colors.starWhite} label="Ovulación" />
+            <Legend color={colors.purple} label={copy.periodWord} />
+            {!isPregnant && <Legend color={colors.purpleDeep} label={`${copy.periodWord} estimada`} hollow />}
+            {!isPregnant && <Legend color={colors.blueSoft} label="Fértiles" />}
+            {!isPregnant && <Legend color={colors.starWhite} label="Ovulación" />}
+            <Legend color={colors.warning} label="Íntimo" small />
           </View>
         </Card>
 
         <Card style={{ marginTop: spacing.md }}>
           <SectionTitle>{fmtLong(parseDate(selected))}</SectionTitle>
-          <Text style={typography.bodyDim}>
-            Selecciona un día del calendario y marca cuándo empezó y terminó tu regla.
-          </Text>
+          {!isPregnant && selectedProb && (
+            <Text style={typography.bodyDim}>
+              Probabilidad de embarazo estimada: <Text style={{ color: colors.text, fontWeight: '700' }}>{selectedProb.toUpperCase()}</Text>
+            </Text>
+          )}
+          {selectedIntim.length > 0 && (
+            <Text style={[typography.bodyDim, { marginTop: 4 }]}>
+              Registro íntimo: {selectedIntim
+                .map((s) => (s.protectedFlag ? `con protección (${s.method || '—'})` : `sin protección (${s.method || 'ninguno'})`))
+                .join(' · ')}
+            </Text>
+          )}
           <PrimaryButton
-            title="Marcar inicio de regla en este día"
+            title={`Marcar inicio de ${copy.periodWord} en este día`}
             onPress={toggleSelectedAsPeriodStart}
             style={{ marginTop: spacing.md }}
           />
           <GhostButton
-            title="Marcar como fin de la regla más reciente"
+            title={`Marcar como fin de${copy.periodWord === 'regla' ? ' la regla' : 'l sangrado'} más reciente`}
             onPress={extendPeriod}
             style={{ marginTop: spacing.sm }}
           />
         </Card>
 
         <Text style={styles.disclaimer}>{CONTRACEPTIVE_DISCLAIMER}</Text>
+        {!isPregnant && <Text style={styles.disclaimer}>{PROBABILITY_DISCLAIMER}</Text>}
       </ScrollView>
     </StarryBackground>
   );
@@ -237,13 +277,15 @@ const styles = StyleSheet.create({
   dayText: { color: colors.textDim, fontSize: 13 },
   dayTextOn: { color: '#fff', fontWeight: '700' },
   daySelected: { borderColor: colors.starWhite, borderWidth: 2 },
-  todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.purpleSoft, marginTop: 2 },
+  dotRow: { flexDirection: 'row', marginTop: 2, height: 6, alignItems: 'center' },
+  todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.purpleSoft, marginHorizontal: 1 },
+  intimDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.warning, marginHorizontal: 1 },
   legendRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.md, justifyContent: 'center' },
   legendItem: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 6, marginVertical: 3 },
   legendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 5, borderWidth: 1 },
   legendLabel: { color: colors.textDim, fontSize: 11 },
   disclaimer: {
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     color: colors.textFaint,
     fontSize: 11,
     textAlign: 'center',

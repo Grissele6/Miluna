@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -8,10 +8,12 @@ import HomeScreen from '../screens/HomeScreen';
 import CalendarScreen from '../screens/calendar/CalendarScreen';
 import DailyScreen from '../screens/daily/DailyScreen';
 import LearnScreen from '../screens/learn/LearnScreen';
-import LearnDetailScreen from '../screens/learn/LearnDetailScreen';
+import LearnCategoryScreen from '../screens/learn/LearnCategoryScreen';
+import LearnArticleScreen from '../screens/learn/LearnArticleScreen';
 import UniverseScreen from '../screens/universe/UniverseScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
+import WelcomeScreen from '../screens/WelcomeScreen';
 
 import { colors } from '../theme';
 import { useUser } from '../contexts/UserContext';
@@ -48,7 +50,8 @@ function LearnStackNav() {
       }}
     >
       <LearnStack.Screen name="LearnHome" component={LearnScreen} options={{ headerShown: false }} />
-      <LearnStack.Screen name="LearnDetail" component={LearnDetailScreen} options={{ title: '' }} />
+      <LearnStack.Screen name="LearnCategory" component={LearnCategoryScreen} options={{ title: '' }} />
+      <LearnStack.Screen name="LearnArticle" component={LearnArticleScreen} options={{ title: '' }} />
     </LearnStack.Navigator>
   );
 }
@@ -82,7 +85,14 @@ function Tabs() {
 
 export default function RootNavigator() {
   const { ready, onboarded } = useUser();
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
+
   if (!ready) return null;
+
+  if (!welcomeDismissed) {
+    return <WelcomeScreen onEnter={() => setWelcomeDismissed(true)} />;
+  }
+
   return (
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
