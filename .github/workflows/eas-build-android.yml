@@ -1,0 +1,78 @@
+name: Build APK (EAS · Android · preview)
+
+# Manual only. Ve a la pestaña "Actions" del repo y aprieta "Run workflow".
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: EAS build (Android APK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Run EAS build (Android · preview · APK)
+        id: build
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          # --non-interactive: no preguntas, --wait: espera al build,
+          # --json: sale JSON con la URL del APK al terminar.
+          eas build \
+            --platform android \
+            --profile preview \
+            --non-interactive \
+            --wait \
+            --json > build.json
+          echo "---"
+          cat build.json
+
+      - name: Extract APK link
+        id: link
+        run: |
+          APK_URL=$(node -e "const b=require('./build.json'); const r=Array.isArray(b)?b[0]:b; console.log(r.artifacts?.buildUrl || r.artifacts?.applicationArchiveUrl || '');")
+          BUILD_PAGE=$(node -e "const b=require('./build.json'); const r=Array.isArray(b)?b[0]:b; console.log((r.project?.slug && r.project?.ownerAccount?.name) ? 'https://expo.dev/accounts/'+r.project.ownerAccount.name+'/projects/'+r.project.slug+'/builds/'+r.id : '');")
+          echo "apk_url=$APK_URL" >> "$GITHUB_OUTPUT"
+          echo "build_page=$BUILD_PAGE" >> "$GITHUB_OUTPUT"
+          {
+            echo "## 📱 Miluna APK listo"
+            echo ""
+            if [ -n "$APK_URL" ]; then
+              echo "**Descarga directa del APK:** $APK_URL"
+              echo ""
+              echo "Abre este link desde tu Android para instalarlo. (Puede que tengas que permitir \"instalar desde fuentes desconocidas\".)"
+            else
+              echo "El build terminó, pero no encontré la URL del APK en la salida. Revisa el detalle acá:"
+            fi
+            echo ""
+            if [ -n "$BUILD_PAGE" ]; then
+              echo "**Detalle del build:** $BUILD_PAGE"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save build.json as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eas-build-metadata
+          path: build.json
+          if-no-files-found: ignore
