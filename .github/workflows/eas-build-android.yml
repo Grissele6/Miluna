@@ -20,17 +20,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Setup EAS CLI
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm ci
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli@latest
 
       - name: Run EAS build (Android · preview · APK)
-        id: build
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
@@ -43,16 +39,14 @@ jobs:
             --non-interactive \
             --wait \
             --json > build.json
-          echo "---"
+          echo "--- build.json ---"
           cat build.json
 
       - name: Extract APK link
-        id: link
+        if: success()
         run: |
           APK_URL=$(node -e "const b=require('./build.json'); const r=Array.isArray(b)?b[0]:b; console.log(r.artifacts?.buildUrl || r.artifacts?.applicationArchiveUrl || '');")
-          BUILD_PAGE=$(node -e "const b=require('./build.json'); const r=Array.isArray(b)?b[0]:b; console.log((r.project?.slug && r.project?.ownerAccount?.name) ? 'https://expo.dev/accounts/'+r.project.ownerAccount.name+'/projects/'+r.project.slug+'/builds/'+r.id : '');")
-          echo "apk_url=$APK_URL" >> "$GITHUB_OUTPUT"
-          echo "build_page=$BUILD_PAGE" >> "$GITHUB_OUTPUT"
+          BUILD_PAGE=$(node -e "const b=require('./build.json'); const r=Array.isArray(b)?b[0]:b; const acc=r.project?.ownerAccount?.name; const slug=r.project?.slug; console.log((acc && slug) ? 'https://expo.dev/accounts/'+acc+'/projects/'+slug+'/builds/'+r.id : '');")
           {
             echo "## 📱 Miluna APK listo"
             echo ""
