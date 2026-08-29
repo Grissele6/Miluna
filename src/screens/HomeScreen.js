@@ -3,8 +3,8 @@ import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import StarryBackground from '../components/StarryBackground';
 import OrbitCycle from '../components/OrbitCycle';
-import BabyGrowth from '../components/BabyGrowth';
 import { Card } from '../components/UI';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { colors, spacing, typography, radius } from '../theme';
 import { listPeriods } from '../db/repositories';
 import { buildPrediction, pregnancyProbability } from '../utils/cyclePredictions';
@@ -125,6 +125,28 @@ export default function HomeScreen({ navigation }) {
   );
 }
 
+function FruitHalo({ emoji, size = 180 }) {
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Svg
+        width={size}
+        height={size}
+        style={{ position: 'absolute', top: 0, left: 0 }}
+      >
+        <Defs>
+          <RadialGradient id="fruitHalo" cx="50%" cy="50%" r="50%">
+            <Stop offset="0%" stopColor={colors.purpleSoft} stopOpacity="0.45" />
+            <Stop offset="65%" stopColor={colors.purpleDeep} stopOpacity="0.15" />
+            <Stop offset="100%" stopColor={colors.bg} stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        <Circle cx={size / 2} cy={size / 2} r={size / 2} fill="url(#fruitHalo)" />
+      </Svg>
+      <Text style={{ fontSize: size * 0.55 }}>{emoji}</Text>
+    </View>
+  );
+}
+
 function PregnancyHero({ pregnancy }) {
   if (!pregnancy) {
     return (
@@ -140,14 +162,28 @@ function PregnancyHero({ pregnancy }) {
   return (
     <Card style={styles.pregHero}>
       <View style={{ alignItems: 'center' }}>
-        <BabyGrowth week={week} size={140} />
-        <Text style={styles.weekBig}>Semana {week}{daysIntoWeek ? ` + ${daysIntoWeek}d` : ''}</Text>
+        {/* a) Título con semana + trimestre */}
+        <Text style={styles.weekBig}>
+          Semana {week}
+          {daysIntoWeek ? ` + ${daysIntoWeek}d` : ''}
+        </Text>
         <Text style={styles.trimester}>Trimestre {trimester}</Text>
+
+        {/* b) Ilustración prominente: emoji de la fruta con halo */}
+        {fruit ? (
+          <View style={{ marginTop: spacing.md }}>
+            <FruitHalo emoji={fruit.emoji} />
+          </View>
+        ) : null}
+
+        {/* c) Frase debajo de la ilustración */}
         {fruit && (
           <Text style={styles.fruitLine}>
-            {fruit.emoji}  Tu bebé es del tamaño de {fruit.name} (~{fruit.sizeCm} cm).
+            Tu bebé es del tamaño de {fruit.name} (~{fruit.sizeCm} cm).
           </Text>
         )}
+
+        {/* d) Fecha estimada de parto */}
         <Text style={styles.due}>Fecha estimada de parto: {dueDate}</Text>
       </View>
     </Card>

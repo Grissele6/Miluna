@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -195,12 +195,6 @@ export default function SettingsScreen() {
         </Card>
 
         <Card style={styles.card}>
-          <SectionTitle>Perfil (opcional)</SectionTitle>
-          <Text style={typography.bodyDim}>Solo para tus estadísticas. Sin metas, sin juicios.</Text>
-          <HeightRow value={settings.height_cm || ''} onSave={(v) => update('height_cm', v)} />
-        </Card>
-
-        <Card style={styles.card}>
           <SectionTitle>Recordatorios</SectionTitle>
           <Text style={typography.bodyDim}>
             Notificaciones locales. Cada uno tiene su propia hora.
@@ -280,34 +274,6 @@ export default function SettingsScreen() {
         }}
       />
     </StarryBackground>
-  );
-}
-
-function HeightRow({ value, onSave }) {
-  const [text, setText] = useState(value || '');
-  return (
-    <View style={styles.heightRow}>
-      <TextInput
-        value={text}
-        onChangeText={setText}
-        placeholder="Talla en cm (ej. 165)"
-        placeholderTextColor={colors.textFaint}
-        keyboardType="number-pad"
-        style={styles.heightInput}
-      />
-      <GhostButton
-        title="Guardar"
-        onPress={() => {
-          const n = parseInt(text, 10);
-          if (isNaN(n) || n < 100 || n > 230) {
-            Alert.alert('Talla inválida', 'Usa un valor entre 100 y 230 cm.');
-            return;
-          }
-          onSave(String(n));
-          Alert.alert('Guardado', `Talla: ${n} cm`);
-        }}
-      />
-    </View>
   );
 }
 

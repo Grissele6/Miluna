@@ -3,20 +3,29 @@ import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import Svg, { Polyline, Circle, Line, Text as SvgText } from 'react-native-svg';
 import { colors, spacing, typography } from '../theme';
 
-export default function WeightChart({ data }) {
+/**
+ * Generic time-series chart: pass rows shaped like [{date, value}, ...] and
+ * a unit label. Renders a simple line chart or a neutral "keep tracking"
+ * message when there are fewer than 2 data points.
+ */
+export default function WeightChart({ data, unit = 'kg', accessor }) {
   const width = Math.min(360, Dimensions.get('window').width - spacing.md * 4);
   const height = 160;
   const pad = { l: 32, r: 12, t: 12, b: 20 };
 
-  if (!data || data.length === 0) {
+  // Accept either {value} rows directly or {weightKg}/{heightCm} rows with an accessor.
+  const getVal = accessor || ((d) => d.value ?? d.weightKg ?? d.heightCm);
+
+  if (!data || data.length < 2) {
     return (
       <Text style={typography.bodyDim}>
-        Aún no hay peso registrado. Anótalo en "Hoy" cuando te sirva verlo en el tiempo.
+        Sigue registrando para ver tu evolución.
+        {data && data.length === 1 ? ` (llevas 1 registro)` : ''}
       </Text>
     );
   }
 
-  const values = data.map((d) => d.weightKg);
+  const values = data.map(getVal);
   const min = Math.min(...values) - 0.5;
   const max = Math.max(...values) + 0.5;
   const range = Math.max(0.5, max - min);
@@ -24,9 +33,10 @@ export default function WeightChart({ data }) {
   const xStep = (width - pad.l - pad.r) / Math.max(1, n - 1);
 
   const points = data.map((d, i) => {
+    const v = getVal(d);
     const x = pad.l + i * xStep;
-    const y = pad.t + (height - pad.t - pad.b) * (1 - (d.weightKg - min) / range);
-    return { x, y, v: d.weightKg, date: d.date };
+    const y = pad.t + (height - pad.t - pad.b) * (1 - (v - min) / range);
+    return { x, y, v, date: d.date };
   });
 
   const polyPoints = points.map((p) => `${p.x},${p.y}`).join(' ');
@@ -53,7 +63,7 @@ export default function WeightChart({ data }) {
         </SvgText>
       </Svg>
       <Text style={styles.caption}>
-        {n} registro{n === 1 ? '' : 's'} · último: {values[n - 1]} kg
+        {n} registro{n === 1 ? '' : 's'} · último: {values[n - 1]} {unit}
       </Text>
     </View>
   );

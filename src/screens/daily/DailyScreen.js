@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, TextInput, Pressable } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  TextInput,
+  Pressable,
+} from 'react-native';
 import StarryBackground from '../../components/StarryBackground';
 import { Card, Chip, PrimaryButton, GhostButton, SectionTitle, Tag } from '../../components/UI';
 import { colors, spacing, typography, radius } from '../../theme';
@@ -7,14 +15,16 @@ import {
   addIntimacy,
   deleteIntimacy,
   getDailyLog,
+  getLatestHeight,
   listIntimacyForDate,
   listPeriods,
   upsertDailyLog,
 } from '../../db/repositories';
-import { toISODate, fmtLong } from '../../utils/dateHelpers';
+import { toISODate, fmtLong, addDays, fmtShort } from '../../utils/dateHelpers';
 import {
   MOODS,
   FLOW_LEVELS,
+  FLOW_TYPES,
   SYMPTOMS,
   ENERGY_LEVELS,
   CONTRACEPTIVE_METHODS,
@@ -24,41 +34,64 @@ import {
 } from '../../utils/stageContent';
 import { useUser } from '../../contexts/UserContext';
 import { buildPrediction, unprotectedRiskInfo } from '../../utils/cyclePredictions';
-import { parseISO } from 'date-fns';
-import { fmtShort } from '../../utils/dateHelpers';
+import { parseISO, format, isSameDay } from 'date-fns';
+import { es } from 'date-fns/locale';
+
+const EMPTY_LOG = {
+  moods: [],
+  energy: null,
+  flow: null,
+  flowType: null,
+  symptoms: [],
+  weightKg: null,
+  heightCm: null,
+};
 
 export default function DailyScreen() {
-  const today = toISODate(new Date());
   const { stage } = useUser();
   const copy = copyFor(stage);
-  const isAdolescent = stage === 'adolescente';
   const isPregnant = stage === 'embarazo';
 
-  const [log, setLog] = useState({ moods: [], energy: null, flow: null, symptoms: [], weightKg: null });
+  const todayISO = toISODate(new Date());
+  const [selectedDate, setSelectedDate] = useState(todayISO);
+  const [log, setLog] = useState(EMPTY_LOG);
   const [weightText, setWeightText] = useState('');
+  const [heightText, setHeightText] = useState('');
   const [saved, setSaved] = useState(false);
   const [intimacyList, setIntimacyList] = useState([]);
   const [prediction, setPrediction] = useState(null);
 
   const load = useCallback(async () => {
-    const [l, ints, periods] = await Promise.all([
-      getDailyLog(today),
-      listIntimacyForDate(today),
+    const [l, ints, periods, latestHeight] = await Promise.all([
+      getDailyLog(selectedDate),
+      listIntimacyForDate(selectedDate),
       listPeriods(),
+      getLatestHeight(),
     ]);
-    if (l) {
-      setLog({
-        moods: l.moods || [],
-        energy: l.energy,
-        flow: l.flow,
-        symptoms: l.symptoms || [],
-        weightKg: l.weightKg,
-      });
-      setWeightText(l.weightKg != null ? String(l.weightKg) : '');
-    }
+    const next = l
+      ? {
+          moods: l.moods || [],
+          energy: l.energy,
+          flow: l.flow,
+          flowType: l.flowType,
+          symptoms: l.symptoms || [],
+          weightKg: l.weightKg,
+          heightCm: l.heightCm,
+        }
+      : EMPTY_LOG;
+    setLog(next);
+    setWeightText(next.weightKg != null ? String(next.weightKg) : '');
+    setHeightText(
+      next.heightCm != null
+        ? String(next.heightCm)
+        : latestHeight != null
+        ? String(latestHeight)
+        : ''
+    );
     setIntimacyList(ints);
     setPrediction(buildPrediction(periods));
-  }, [today]);
+    setSaved(false);
+  }, [selectedDate]);
 
   useEffect(() => {
     load();
@@ -76,32 +109,41 @@ export default function DailyScreen() {
       return { ...prev, symptoms: has ? prev.symptoms.filter((s) => s !== id) : [...prev.symptoms, id] };
     });
 
-  const parseWeight = (text) => {
+  const parseNumber = (text, min, max, decimals = 1) => {
     const cleaned = text.replace(',', '.').replace(/[^0-9.]/g, '');
     const n = parseFloat(cleaned);
-    if (isNaN(n) || n < 20 || n > 300) return null;
-    return Math.round(n * 10) / 10;
+    if (isNaN(n) || n < min || n > max) return null;
+    return Math.round(n * 10 ** decimals) / 10 ** decimals;
   };
 
   const save = async () => {
-    const weightKg = parseWeight(weightText);
-    await upsertDailyLog(today, { ...log, weightKg });
+    const weightKg = parseNumber(weightText, 20, 300, 1);
+    const heightCm = parseNumber(heightText, 100, 230, 0);
+    await upsertDailyLog(selectedDate, { ...log, weightKg, heightCm });
     setSaved(true);
 
     if (isPregnant && log.flow && log.flow !== 'none') {
       Alert.alert('Sobre el sangrado', PREGNANCY_BLEEDING_MESSAGE);
       return;
     }
-    Alert.alert('Guardado', 'Tu registro de hoy quedó guardado.');
+    Alert.alert('Guardado', `Registro guardado para ${fmtShort(parseISO(selectedDate))}.`);
   };
+
+  const isToday = selectedDate === todayISO;
 
   return (
     <StarryBackground seed={6}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={typography.h1}>¿Cómo te sientes hoy?</Text>
-        <Text style={[typography.bodyDim, { marginTop: 4, textTransform: 'capitalize' }]}>
-          {fmtLong(new Date())}
+        <Text style={[typography.bodyDim, { marginTop: 4 }]}>
+          {isToday ? 'Estás anotando hoy.' : 'Estás anotando un día anterior.'}
         </Text>
+
+        <DateStrip
+          selectedDate={selectedDate}
+          onSelect={(d) => setSelectedDate(d)}
+          todayISO={todayISO}
+        />
 
         <Card style={styles.card}>
           <SectionTitle>Ánimo</SectionTitle>
@@ -138,8 +180,11 @@ export default function DailyScreen() {
           </View>
         </Card>
 
+        {/* Flujo — cantidad + tipo agrupados */}
         <Card style={styles.card}>
           <SectionTitle>{isPregnant ? 'Sangrado' : 'Flujo'}</SectionTitle>
+
+          <Text style={styles.subLabel}>Cantidad</Text>
           <View style={styles.row}>
             {FLOW_LEVELS.map((f) => (
               <Chip
@@ -153,6 +198,22 @@ export default function DailyScreen() {
               />
             ))}
           </View>
+
+          <Text style={[styles.subLabel, { marginTop: spacing.md }]}>Tipo</Text>
+          <View style={styles.row}>
+            {FLOW_TYPES.map((t) => (
+              <Chip
+                key={t.id}
+                label={t.label}
+                active={log.flowType === t.id}
+                onPress={() => {
+                  setLog((p) => ({ ...p, flowType: t.id }));
+                  setSaved(false);
+                }}
+              />
+            ))}
+          </View>
+
           {isPregnant && log.flow && log.flow !== 'none' && (
             <Text style={styles.warn}>{PREGNANCY_BLEEDING_MESSAGE}</Text>
           )}
@@ -160,7 +221,7 @@ export default function DailyScreen() {
 
         <Card style={styles.card}>
           <SectionTitle>Síntomas físicos</SectionTitle>
-          <Text style={typography.bodyDim}>Toca los que sientas hoy.</Text>
+          <Text style={typography.bodyDim}>Toca los que sientas.</Text>
           <View style={[styles.row, { marginTop: spacing.sm }]}>
             {SYMPTOMS.map((s) => (
               <Chip
@@ -176,36 +237,55 @@ export default function DailyScreen() {
           </View>
         </Card>
 
-        {!isAdolescent && (
-          <Card style={styles.card}>
-            <SectionTitle>Peso (opcional)</SectionTitle>
-            <Text style={typography.bodyDim}>
-              Solo si te sirve verlo en el tiempo. Sin metas, sin juicios.
-            </Text>
-            <TextInput
-              value={weightText}
-              onChangeText={(t) => {
-                setWeightText(t);
-                setSaved(false);
-              }}
-              placeholder="Ej. 62.5"
-              placeholderTextColor={colors.textFaint}
-              keyboardType="decimal-pad"
-              style={styles.weightInput}
-            />
-            <Text style={typography.caption}>kg</Text>
-          </Card>
-        )}
-
         <IntimacySection
-          today={today}
+          date={selectedDate}
           intimacyList={intimacyList}
           reload={load}
           prediction={prediction}
         />
 
+        {/* Peso y talla — bloque único al final */}
+        <Card style={styles.card}>
+          <SectionTitle>Peso y talla (opcional)</SectionTitle>
+          <Text style={typography.bodyDim}>
+            Solo si te sirve verlo en el tiempo. Sin metas, sin juicios.
+          </Text>
+          <View style={styles.measureRow}>
+            <View style={styles.measureCol}>
+              <Text style={styles.subLabel}>Peso</Text>
+              <TextInput
+                value={weightText}
+                onChangeText={(t) => {
+                  setWeightText(t);
+                  setSaved(false);
+                }}
+                placeholder="62.5"
+                placeholderTextColor={colors.textFaint}
+                keyboardType="decimal-pad"
+                style={styles.numInput}
+              />
+              <Text style={typography.caption}>kg</Text>
+            </View>
+            <View style={styles.measureCol}>
+              <Text style={styles.subLabel}>Talla</Text>
+              <TextInput
+                value={heightText}
+                onChangeText={(t) => {
+                  setHeightText(t);
+                  setSaved(false);
+                }}
+                placeholder="165"
+                placeholderTextColor={colors.textFaint}
+                keyboardType="number-pad"
+                style={styles.numInput}
+              />
+              <Text style={typography.caption}>cm</Text>
+            </View>
+          </View>
+        </Card>
+
         <PrimaryButton
-          title={saved ? '✓ Guardado' : 'Guardar registro de hoy'}
+          title={saved ? '✓ Guardado' : 'Guardar registro'}
           onPress={save}
           style={{ marginTop: spacing.md }}
         />
@@ -217,20 +297,60 @@ export default function DailyScreen() {
   );
 }
 
-function IntimacySection({ today, intimacyList, reload, prediction }) {
+function DateStrip({ selectedDate, onSelect, todayISO }) {
+  // Last 14 days (oldest → newest, so "today" sits on the right).
+  const days = useMemo(() => {
+    const today = new Date();
+    return Array.from({ length: 14 }).map((_, i) => addDays(today, -(13 - i)));
+  }, []);
+  return (
+    <Card style={styles.card}>
+      <SectionTitle>Fecha</SectionTitle>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.dateScroll}
+      >
+        {days.map((d) => {
+          const iso = toISODate(d);
+          const active = iso === selectedDate;
+          const isToday = iso === todayISO;
+          return (
+            <Pressable
+              key={iso}
+              onPress={() => onSelect(iso)}
+              style={[styles.dateChip, active && styles.dateChipActive]}
+            >
+              <Text style={[styles.dateWeekday, active && styles.dateOn]}>
+                {format(d, 'EEE', { locale: es }).slice(0, 3)}
+              </Text>
+              <Text style={[styles.dateNum, active && styles.dateOn]}>{format(d, 'd')}</Text>
+              {isToday && <Text style={styles.dateToday}>hoy</Text>}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <Text style={styles.dateSelectedLine}>
+        {fmtLong(parseISO(selectedDate))}
+      </Text>
+    </Card>
+  );
+}
+
+function IntimacySection({ date, intimacyList, reload, prediction }) {
   const [showForm, setShowForm] = useState(false);
   const [prot, setProt] = useState(true);
   const [method, setMethod] = useState('preservativo');
 
   const save = async () => {
-    await addIntimacy(today, prot, method);
+    await addIntimacy(date, prot, method);
     setShowForm(false);
     setProt(true);
     setMethod('preservativo');
     await reload();
 
     if (!prot) {
-      const risk = unprotectedRiskInfo(today, prediction);
+      const risk = unprotectedRiskInfo(date, prediction);
       if (risk?.inWindow) {
         Alert.alert(
           'Aviso',
@@ -317,10 +437,17 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.md, paddingTop: spacing.xxl, paddingBottom: spacing.xxl },
   card: { marginTop: spacing.md },
   row: { flexDirection: 'row', flexWrap: 'wrap', marginTop: spacing.sm },
+  subLabel: { color: colors.textDim, fontSize: 12, letterSpacing: 0.4, marginTop: 4 },
   footer: { color: colors.textFaint, textAlign: 'center', marginTop: spacing.md, fontSize: 12 },
   warn: { color: colors.warning, marginTop: spacing.sm, fontSize: 13 },
-  weightInput: {
+  measureRow: {
+    flexDirection: 'row',
     marginTop: spacing.sm,
+    justifyContent: 'space-between',
+  },
+  measureCol: { flex: 1, marginHorizontal: 4 },
+  numInput: {
+    marginTop: 6,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
@@ -328,5 +455,35 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 18,
     backgroundColor: colors.bgSoft,
+  },
+  dateScroll: { paddingVertical: spacing.sm, paddingRight: spacing.sm },
+  dateChip: {
+    width: 54,
+    marginRight: 6,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+  },
+  dateChipActive: {
+    backgroundColor: colors.purpleDeep,
+    borderColor: colors.purpleSoft,
+  },
+  dateWeekday: {
+    color: colors.textFaint,
+    fontSize: 11,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  dateNum: { color: colors.text, fontSize: 20, fontWeight: '700', marginTop: 2 },
+  dateOn: { color: '#fff' },
+  dateToday: { color: colors.purpleSoft, fontSize: 10, marginTop: 2 },
+  dateSelectedLine: {
+    color: colors.textDim,
+    fontSize: 12,
+    marginTop: 4,
+    textTransform: 'capitalize',
   },
 });

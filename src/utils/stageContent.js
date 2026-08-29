@@ -79,6 +79,15 @@ export const FLOW_LEVELS = [
   { id: 'heavy', label: 'Abundante' },
 ];
 
+export const FLOW_TYPES = [
+  { id: 'rojo_brillante', label: 'Rojo brillante' },
+  { id: 'rojo_oscuro', label: 'Rojo oscuro' },
+  { id: 'cafe', label: 'Café' },
+  { id: 'rosa', label: 'Rosa / manchado' },
+  { id: 'con_coagulos', label: 'Con coágulos' },
+  { id: 'otro', label: 'Otro' },
+];
+
 export const SYMPTOMS = [
   { id: 'colicos', label: 'Cólicos' },
   { id: 'dolor_cabeza', label: 'Dolor de cabeza' },

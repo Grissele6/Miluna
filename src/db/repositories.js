@@ -60,6 +60,8 @@ function hydrateLog(row) {
     moods,
     symptoms: row.symptoms ? JSON.parse(row.symptoms) : [],
     weightKg: row.weight_kg ?? null,
+    heightCm: row.height_cm ?? null,
+    flowType: row.flow_type ?? null,
   };
 }
 
@@ -69,25 +71,29 @@ export async function upsertDailyLog(date, log) {
   const moods = log.moods ? JSON.stringify(log.moods) : null;
   const legacyMood = Array.isArray(log.moods) && log.moods.length ? log.moods[0] : null;
   await db.runAsync(
-    `INSERT INTO daily_logs(date, mood, moods, energy, flow, symptoms, note, weight_kg, updated_at)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO daily_logs(date, mood, moods, energy, flow, flow_type, symptoms, note, weight_kg, height_cm, updated_at)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(date) DO UPDATE SET
        mood = excluded.mood,
        moods = excluded.moods,
        energy = excluded.energy,
        flow = excluded.flow,
+       flow_type = excluded.flow_type,
        symptoms = excluded.symptoms,
        note = excluded.note,
        weight_kg = excluded.weight_kg,
+       height_cm = excluded.height_cm,
        updated_at = excluded.updated_at`,
     date,
     legacyMood,
     moods,
     log.energy ?? null,
     log.flow ?? null,
+    log.flowType ?? null,
     symptoms,
     log.note ?? null,
-    log.weightKg ?? null
+    log.weightKg ?? null,
+    log.heightCm ?? null
   );
 }
 
@@ -109,6 +115,22 @@ export async function listWeightHistory() {
     'SELECT date, weight_kg as weightKg FROM daily_logs WHERE weight_kg IS NOT NULL ORDER BY date ASC'
   );
   return rows;
+}
+
+export async function listHeightHistory() {
+  const db = await getDb();
+  const rows = await db.getAllAsync(
+    'SELECT date, height_cm as heightCm FROM daily_logs WHERE height_cm IS NOT NULL ORDER BY date ASC'
+  );
+  return rows;
+}
+
+export async function getLatestHeight() {
+  const db = await getDb();
+  const row = await db.getFirstAsync(
+    'SELECT height_cm as heightCm FROM daily_logs WHERE height_cm IS NOT NULL ORDER BY date DESC LIMIT 1'
+  );
+  return row?.heightCm ?? null;
 }
 
 // ---------- Intimacy ----------

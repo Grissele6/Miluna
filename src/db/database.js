@@ -63,6 +63,12 @@ async function migrate(db) {
     // so historical data is preserved and read as [mood] on load.
     await db.execAsync('ALTER TABLE daily_logs ADD COLUMN moods TEXT');
   }
+  if (!(await hasColumn(db, 'daily_logs', 'flow_type'))) {
+    await db.execAsync('ALTER TABLE daily_logs ADD COLUMN flow_type TEXT');
+  }
+  if (!(await hasColumn(db, 'daily_logs', 'height_cm'))) {
+    await db.execAsync('ALTER TABLE daily_logs ADD COLUMN height_cm REAL');
+  }
 
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS intimacy (

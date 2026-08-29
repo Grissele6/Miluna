@@ -5,7 +5,13 @@ import StarryBackground from '../../components/StarryBackground';
 import { Card, SectionTitle, Tag } from '../../components/UI';
 import WeightChart from '../../components/WeightChart';
 import { colors, spacing, typography } from '../../theme';
-import { listDailyLogs, listIntimacy, listPeriods, listWeightHistory } from '../../db/repositories';
+import {
+  listDailyLogs,
+  listHeightHistory,
+  listIntimacy,
+  listPeriods,
+  listWeightHistory,
+} from '../../db/repositories';
 import { computeStats } from '../../utils/cyclePredictions';
 import { useUser } from '../../contexts/UserContext';
 import { copyFor, SYMPTOMS, MOODS } from '../../utils/stageContent';
@@ -15,15 +21,17 @@ export default function UniverseScreen() {
   const [state, setState] = useState(null);
 
   const reload = useCallback(async () => {
-    const [periods, logs, weights, intim] = await Promise.all([
+    const [periods, logs, weights, heights, intim] = await Promise.all([
       listPeriods(),
       listDailyLogs(10000),
       listWeightHistory(),
+      listHeightHistory(),
       listIntimacy(10000),
     ]);
     setState({
       stats: computeStats(periods, logs),
       weights,
+      heights,
       intimacyCount: intim.length,
     });
   }, []);
@@ -89,10 +97,27 @@ export default function UniverseScreen() {
 
             {!isAdolescent && (
               <Card style={styles.card}>
-                <SectionTitle>Tu peso en el tiempo</SectionTitle>
-                <Text style={typography.bodyDim}>Sin metas, sin colores de alerta. Solo TU historia.</Text>
-                <View style={{ marginTop: spacing.md, alignItems: 'center' }}>
-                  <WeightChart data={state.weights} />
+                <SectionTitle>Peso y talla</SectionTitle>
+                <Text style={typography.bodyDim}>
+                  Solo TU seguimiento. Sin metas, sin colores de alerta, sin comparar con nadie.
+                </Text>
+
+                <Text style={styles.subLabel}>Peso (kg)</Text>
+                <View style={{ alignItems: 'center', marginTop: 4 }}>
+                  <WeightChart
+                    data={state.weights}
+                    accessor={(d) => d.weightKg}
+                    unit="kg"
+                  />
+                </View>
+
+                <Text style={[styles.subLabel, { marginTop: spacing.md }]}>Talla (cm)</Text>
+                <View style={{ alignItems: 'center', marginTop: 4 }}>
+                  <WeightChart
+                    data={state.heights}
+                    accessor={(d) => d.heightCm}
+                    unit="cm"
+                  />
                 </View>
               </Card>
             )}
@@ -133,6 +158,7 @@ const styles = StyleSheet.create({
   statBig: { alignItems: 'center' },
   statValue: { fontSize: 40, fontWeight: '800', color: colors.purpleSoft },
   statLabel: { color: colors.textDim, fontSize: 12, marginTop: 2, textAlign: 'center' },
+  subLabel: { color: colors.textDim, fontSize: 12, letterSpacing: 0.4, marginTop: spacing.sm },
   finale: {
     color: colors.textFaint,
     fontStyle: 'italic',

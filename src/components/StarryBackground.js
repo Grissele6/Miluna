@@ -26,22 +26,28 @@ function generateStars(seed, count, w, h) {
   return stars;
 }
 
-// A small twinkling star powered by the native driver.
-function Twinkler({ x, y, size, seed }) {
-  const anim = useRef(new Animated.Value(seed % 1)).current;
+/**
+ * A single twinkling star. Each instance owns a private Animated.Value that
+ * loops opacity between a dim and bright value on the native driver. We
+ * pre-seed both the initial phase AND the loop duration from the spec passed
+ * in so every star runs at its own tempo and starts at its own moment —
+ * without that the whole layer breathes in unison and looks static from a
+ * distance.
+ */
+function Twinkler({ x, y, size, phase, duration, minOpacity, maxOpacity }) {
+  const anim = useRef(new Animated.Value(phase)).current;
   useEffect(() => {
-    const dur = 1800 + (seed * 1000) % 2600;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(anim, {
           toValue: 1,
-          duration: dur,
+          duration,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(anim, {
           toValue: 0,
-          duration: dur,
+          duration,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
@@ -49,8 +55,11 @@ function Twinkler({ x, y, size, seed }) {
     );
     loop.start();
     return () => loop.stop();
-  }, [anim, seed]);
-  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.95] });
+  }, [anim, duration]);
+  const opacity = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [minOpacity, maxOpacity],
+  });
   return (
     <Animated.View
       pointerEvents="none"
@@ -68,7 +77,12 @@ function Twinkler({ x, y, size, seed }) {
   );
 }
 
-export default function StarryBackground({ children, seed = 3, density = 0.0005, twinklers = 22 }) {
+export default function StarryBackground({
+  children,
+  seed = 3,
+  density = 0.0005,
+  twinklers = 60,
+}) {
   const { width, height } = Dimensions.get('window');
   const stars = useMemo(
     () => generateStars(seed, Math.floor(width * height * density), width, height),
@@ -76,12 +90,19 @@ export default function StarryBackground({ children, seed = 3, density = 0.0005,
   );
   const twinks = useMemo(() => {
     const rnd = seededRandom(seed + 999);
-    return Array.from({ length: twinklers }).map((_, i) => ({
-      x: rnd() * width,
-      y: rnd() * height,
-      size: 1.4 + rnd() * 2.6,
-      seed: i + seed,
-    }));
+    return Array.from({ length: twinklers }).map((_, i) => {
+      const brightness = rnd(); // 0..1, controls both size and swing
+      return {
+        key: `${seed}-${i}`,
+        x: rnd() * width,
+        y: rnd() * height,
+        size: 1.6 + brightness * 3.2,
+        phase: rnd(), // random start position on the sine
+        duration: 700 + rnd() * 1600, // 0.7s–2.3s per half → ~1.4–4.6s full
+        minOpacity: 0.08 + rnd() * 0.15,
+        maxOpacity: 0.65 + brightness * 0.35,
+      };
+    });
   }, [seed, width, height, twinklers]);
 
   return (
@@ -99,10 +120,19 @@ export default function StarryBackground({ children, seed = 3, density = 0.0005,
           <Circle key={i} cx={s.x} cy={s.y} r={s.r} fill={colors.starWhite} opacity={s.o} />
         ))}
       </Svg>
-      {/* Twinklers — a small handful of native-driven fades. Cheap on the JS thread. */}
+      {/* Twinklers — native-driver opacity, staggered per-star. Cheap on JS. */}
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         {twinks.map((t) => (
-          <Twinkler key={t.seed} x={t.x} y={t.y} size={t.size} seed={t.seed} />
+          <Twinkler
+            key={t.key}
+            x={t.x}
+            y={t.y}
+            size={t.size}
+            phase={t.phase}
+            duration={t.duration}
+            minOpacity={t.minOpacity}
+            maxOpacity={t.maxOpacity}
+          />
         ))}
       </View>
       <View style={styles.children}>{children}</View>
